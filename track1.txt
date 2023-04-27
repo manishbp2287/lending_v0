@@ -1,0 +1,62 @@
+select count(distinct merchant_id) digital_merchants_leads,
+count (distinct case when lower(status) = 'approved' then merchant_id else null end) digital_leads_converted,
+count (distinct case when (lower(status) = 'approved'and called = 0 and fse = 0 and marketing = 0) then merchant_id else null end) digital_leads_untouched,
+count (distinct case when fse = 1 then merchant_id else null end) fse_touched,
+count (distinct case when fse = 1 and lower(status) = 'approved' then merchant_id else null end) fse_converted,
+count (distinct case when called = 1 then merchant_id else null end) calling_touched,
+count (distinct case when called = 1 and lower(status) = 'approved' then merchant_id else null end) calling_converted,
+count (distinct case when marketing = 1 then merchant_id else null end) marketing_touched,
+count (distinct case when marketing = 1 and lower(status) = 'approved' then merchant_id else null end) marketing_converted
+
+
+from
+(
+
+
+SELECT
+DISTINCT cm.merchant_id,
+  repeat_loan,
+  topup,
+  loan_propensity,
+  Channel,
+  running_bureau_loans,
+  la.status,
+  case when calling.merchant_id is not null then 1 else 0 end as called,
+  case when fse.merchant_id is not null then 1 else 0 end as fse,
+  case when marketing.merchant_id is not null then 1 else 0 end as marketing,
+
+
+FROM `bharatpe-analytics-prod.bharatpe_ml_data.digi_merch_campaign_24_04` cm
+left join (select * from bharatpe-analytics-prod.easy_loan.lending_application where date(created_at)>="2023-04-24") la
+on la.merchant_id = cm.merchant_id
+left join (
+  select distinct merchant_id
+from `bharatpe_data_platfrom.Bharatpe_lending_calling_data`
+where date(created_at) >= date('2023-04-24')
+--limit 100
+and disposition1 = 'Connected'
+-- and lower(campaign_Name) in ('repeat', 'draft', 'cold', 'fresh', 'enach', 'draft_stock', 'topup', 'eligible' )
+and call_start_time is not null
+and merchant_id is not null
+) calling
+on cm.merchant_id = calling.merchant_id
+left join (select distinct merchant_id
+FROM `bharatpe-analytics-prod.bp_lastmile.lmp_user_task_history_v2`
+where task_id in (18,21,22,36)
+and lower(status) = "completed"
+and date(created_at) >= "2023-04-24") fse
+on cm.merchant_id = fse.merchant_id
+left join (
+select distinct umdm.merchant_id
+from `bharatpe_aggregate_dataset.appsflyer_nonorganic_event` e
+join `bharatpe_data_platfrom.universal_merchant_data_mart`  umdm
+on e.customer_user_id = umdm.mid
+where date(event_time) >= '2023-04-24'
+and lower(Campaign_Type) = 'retargeting'
+and customer_user_id <> 'nan'
+and customer_user_id is not null
+and lower(media_source) not like '%tech%'
+and date(merchant_created_at) <= current_date()
+) marketing
+on cm.merchant_id = marketing.merchant_id
+)
